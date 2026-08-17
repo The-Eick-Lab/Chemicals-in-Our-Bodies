@@ -1,0 +1,1446 @@
+---
+title: 'CIOB: Amines and Oxidative Stress'
+author: "Madeline Chandler"
+date: "2026-01-21"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+library(gt)
+library(gtsummary)
+library(broom)
+library(mgcv)
+library(gtExtras)
+library(corrplot)
+library(ggthemes)
+library(ggh4x)
+library(cowplot)
+library(bkmr)
+library(readxl)
+library(ggpubr)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(mgcv)
+library(tidygam)
+library(gratia)
+library(patchwork)
+
+
+
+setwd("~/Library/CloudStorage/OneDrive-Emory/Stephanie/Research/CIOB and IKIDS/CIOB and IKIDS Reserach Projects/Madeline_Amines and Oxidative Stress/Raw Data")
+
+# uploading combined dataset 
+dat <- read_csv("Demographics/ECHO.CA.IL Combined Data 03.16.2026.csv")
+
+# Filtering to just CIOB
+dat_ciob <- dat %>% filter(study == "CIOB")
+
+# removing leading digit from participant ID
+dat_ciob$ppt_id <- as.numeric(substring(dat_ciob$ppt_id, 3))
+
+
+dat_covar <- read_sas("Demographics/cleaned_covars_12022022.sas7bdat", NULL)
+dat_covar <- dat_covar %>% select(ppt_id, foreign, smoke)
+
+
+dat_combined <- left_join(dat_ciob, dat_covar, by = "ppt_id")
+```
+
+```{r, include=FALSE}
+setwd("~/Library/CloudStorage/OneDrive-Emory/Stephanie/Research/CIOB and IKIDS/CIOB and IKIDS Reserach Projects/Madeline_Amines and Oxidative Stress/Raw Data")
+
+dat_stress <- read_sas("Stress/stress_clean_12022022.sas7bdat",  NULL)
+dat_stress <- dat_stress %>% select(ppt_id, econ_cat)
+
+dat_combined <- left_join(dat_combined, dat_stress, by = "ppt_id")
+
+```
+
+```{r, include=FALSE}
+
+setwd("~/Library/CloudStorage/OneDrive-Emory/Stephanie/Research/CIOB and IKIDS/CIOB and IKIDS Reserach Projects/Madeline_Amines and Oxidative Stress/Raw Data")
+
+dat_amines <- read_csv("Amines/Aromatic_Amines_2ndTri.csv")
+
+#combining demographics and amines
+dat_combined <- left_join(dat_amines, dat_combined, by = "ppt_id")
+
+# creating a SG variable to combine nicely with oxidative stress dataset
+dat_combined$sg_main <- (as.numeric(dat_combined$urine_sp_gravity) + 0.0001)
+
+```
+
+```{r, include=FALSE}
+
+setwd("~/Library/CloudStorage/OneDrive-Emory/Stephanie/Research/CIOB and IKIDS/CIOB and IKIDS Reserach Projects/Madeline_Amines and Oxidative Stress/Raw Data/")
+
+dat_ox <- read_csv("Oxidative Stress/CIOB_oxidative stress long_clean 10082021.csv")
+
+dat_ox <- dat_ox %>% filter(visit==2)
+
+
+#combining demographics and amines - no missing
+combined <- inner_join(dat_ox, dat_combined, by = "ppt_id")
+
+
+```
+
+```{r, include = FALSE}
+#### Labels for tables and plots 
+# aromatic amines
+chemical_label <- c("∑ aromatic amines", "aniline", "cotinine", "ortho/meta-toluidine", "4-chloroaniline", "ortho-anisidine", "4,4'methylenedianiline", "8-iso-PGF2α", "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+        "2,3-dinor-8-iso-PGF2α", "PGF2α", "8-iso-PGF2α, chemical fraction", "8-iso-PGF2α, enzymatic fraction", "para-anisidine", "para-toluidine", "3-chloroaniline", "3,4-dichloroaniline", "1,3-phenylenediamine", "nicotine")
+names(chemical_label) <- c( "sumaa", "ANI", "COTT", "OMTD", "CA4", "OANSD", "MDA44", "iso.imp.ngml","isom.imp.ngml", "isom.imp.new.ngml", "pgf.imp.ngml", "iso.chem.imp.ngml", "iso.enz.imp.ngml", "PANSD", "PTD", "CA3", "DCA34", "PLD13", "NICT")
+
+# aromatic amines
+chemical_label_log <- c("∑ aromatic amines", "aniline", "cotinine", "ortho/meta-toluidine", "4-chloroaniline", "ortho-anisidine", "4,4'methylenedianiline", "8-iso-PGF2α", "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+        "2,3-dinor-8-iso-PGF2α", "PGF2α", "8-iso-PGF2α, chemical fraction", "8-iso-PGF2α, enzymatic fraction", "para-anisidine", "para-toluidine", "3-chloroaniline", "3,4-dichloroaniline", "1,3-phenylenediamine", "nicotine")
+names(chemical_label_log) <- c( "sumaa_log", "ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log", "iso.chem.imp.ngml_log", "iso.enz.imp.ngml_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+
+# amines label table 
+chemical_sg_label <- c( "∑ aromatic amines", "aniline", "cotinine", "ortho/meta-toluidine", "4-chloroaniline", "ortho-anisidine", "4,4'methylenedianiline", "8-iso-PGF2α", "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+        "2,3-dinor-8-iso-PGF2α", "PGF2α", "8-iso-PGF2α, chemical fraction", "8-iso-PGF2α, enzymatic fraction", "para-anisidine", "para-toluidine", "3-chloroaniline", "3,4-dichloroaniline", "1,3-phenylenediamine", "nicotine")
+names(chemical_sg_label) <- c( "sumaa_sg", "ANI_sg", "COTT_sg", "OMTD_sg", "CA4_sg", "OANSD_sg", "MDA44_sg", "iso.imp.ngml_sg", "isom.imp.ngml_sg", "isom.imp.new.ngml_sg", "pgf.imp.ngml_sg", "iso.chem.imp.ngml_sg","iso.enz.imp.ngml_sg", "PANSD_sg", "PTD_sg", "CA3_sg", "DCA34_sg", "PLD13_sg", "NICT_sg")
+
+
+# set global plot themes
+theme_set(theme_bw() +
+  theme(title = element_text(size = 15, color = "grey30"),
+        axis.title.x = element_text(size = 15, color = "grey30"),
+        axis.title.y = element_text(size = 15, color = "grey30"),
+        axis.text.x = element_text(size = 15, color = "grey30"),
+        axis.text.y = element_text(size = 15, color = "grey30"),
+        panel.grid = element_blank(),
+        strip.text = element_text(size = 15, color = "grey30"),
+        strip.background = element_blank(), 
+        panel.border = element_rect(color = "black", fill = NA, size = 1),
+        legend.position = "bottom",
+        legend.key.size = unit(3, "cm"),
+        legend.text = element_text(size = 15, color = "grey30"))) 
+
+
+summary(combined$sg_main)
+
+```
+
+```{r, include=FALSE}
+
+# select columns
+combined <- combined %>%
+  # covert "." to NA, convert values to numeric 
+  mutate(across(28:65, ~ na_if(., ".")), 
+         across(28:65, ~ as.numeric(.))) %>%
+  # take complete cases
+    drop_na(PANSD, OANSD, DMA24, PCD, PTD, OMTD, CA4, CA3, TMA245, DMBD33, EA4, DCA34, MDA44, PLD13, CTD4, OD44, AA4, MTD44, MBCA44, ABP2, ABP4, BD, ODAD, TD44, DAT34, DAT24, DAT26, DAAS34_DAAS24, ABPA33, DMBPDA, AMOBZT2, BPCH11, DMA26, NICT, COTT, TMA246, ANI, NA2)
+
+# Impute LOD to be LOD/sqrt(2)
+# "ANI", "COTT", "OMTD", "CA4", "OANSD", "MDA44", "PANSD", "PTD", "CA3", "DCA34", "PLD13", "NICT"
+
+# ANI - LOD=0.1
+combined$ANI <- ifelse(combined$ANI_comment==37,0.1/sqrt(2),
+                  ifelse(combined$ANI_comment==0 | combined$ANI_comment == 97, as.numeric(combined$ANI),NA))
+# COTT - LOD=0.1
+combined$COTT <- ifelse(combined$COTT_comment==37,0.1/sqrt(2),
+                  ifelse(combined$COTT_comment==0 | combined$COTT_comment == 97, as.numeric(combined$COTT),NA))
+# OMTD - LOD=0.05
+combined$OMTD <- ifelse(combined$OMTD_comment==37,0.05/sqrt(2),
+                  ifelse(combined$OMTD_comment==0 | combined$OMTD_comment == 97, as.numeric(combined$OMTD),NA))
+# CA4 - LOD=0.05
+combined$CA4 <- ifelse(combined$CA4_comment==37,0.05/sqrt(2),
+                  ifelse(combined$CA4_comment==0 | combined$CA4_comment == 97, as.numeric(combined$CA4),NA))
+# OANSD - LOD=0.03
+combined$OANSD <- ifelse(combined$OANSD_comment==37,0.03/sqrt(2),
+                  ifelse(combined$OANSD_comment==0 | combined$OANSD_comment == 97, as.numeric(combined$OANSD),NA))
+# MDA44 - LOD=0.03
+combined$MDA44 <- ifelse(combined$MDA44_comment==37,0.03/sqrt(2),
+                  ifelse(combined$MDA44_comment==0 | combined$MDA44_comment == 97, as.numeric(combined$MDA44),NA))
+# PANSD - LOD=0.05
+combined$PANSD <- ifelse(combined$PANSD_comment==37,0.05/sqrt(2),
+                  ifelse(combined$PANSD_comment==0 | combined$PANSD_comment == 97, as.numeric(combined$PANSD),NA))
+# PTD - LOD=0.03
+combined$PTD <- ifelse(combined$PTD_comment==37,0.03/sqrt(2),
+                  ifelse(combined$PTD_comment==0 | combined$PTD_comment == 97, as.numeric(combined$PTD),NA))
+# CA3 - LOD=0.05
+combined$CA3 <- ifelse(combined$CA3_comment==37,0.05/sqrt(2),
+                  ifelse(combined$CA3_comment==0 | combined$CA3_comment == 97, as.numeric(combined$CA3),NA))
+# DCA34 - LOD=0.1
+combined$DCA34 <- ifelse(combined$DCA34_comment==37,0.1/sqrt(2),
+                  ifelse(combined$DCA34_comment==0 | combined$DCA34_comment == 97, as.numeric(combined$DCA34),NA))
+# PLD13 - LOD=0.2
+combined$PLD13 <- ifelse(combined$PLD13_comment==37,0.2/sqrt(2),
+                  ifelse(combined$PLD13_comment==0 | combined$PLD13_comment == 97, as.numeric(combined$PLD13),NA))
+# NICT - LOD=0.1
+combined$NICT <- ifelse(combined$NICT_comment==37,0.1/sqrt(2),
+                  ifelse(combined$NICT_comment==0 | combined$NICT_comment == 97, as.numeric(combined$NICT),NA))
+
+  # log variables
+variables <- c("PANSD", "OANSD", "DMA24", "PCD", "PTD", "OMTD", "CA4", "CA3", "TMA245", "DMBD33", "EA4", "DCA34", "MDA44", "PLD13", "CTD4", "OD44", "AA4", "MTD44", "MBCA44", "ABP2", "ABP4", "BD", "ODAD", "TD44", "DAT34", "DAT24", "DAT26", "DAAS34_DAAS24", "ABPA33", "DMBPDA", "AMOBZT2", "BPCH11", "DMA26", "NICT", "COTT", "TMA246", "ANI", "NA2","iso.imp.ngml", "isom.imp.ngml", "isom.imp.new.ngml", "pgf.imp.ngml", "iso.chem.imp.ngml","iso.enz.imp.ngml")
+
+combined <- combined %>%
+  mutate(across(all_of(variables), log, .names = "{.col}_log"))
+
+
+# creating a summed variable using molecular weights 
+combined$ANI_m <- combined$ANI/93.1265
+combined$COTT_m <- combined$COTT/176.21
+combined$CA4_m <- combined$CA4/127.57
+combined$OANSD_m <- combined$OANSD/123.15
+combined$MDA44_m <- combined$MDA44/198.26
+combined$OMTD_m <- combined$OMTD/107.15
+
+
+combined <- combined %>%
+  mutate(sumaa = rowSums(select(., ANI_m, COTT_m, CA4_m, OANSD_m, MDA44_m, OMTD_m))) %>%
+  mutate(sumaa_log = log(sumaa))
+
+
+# replacing amine values below LOD to NA
+amines <- c("PANSD", "OANSD", "DMA24", "PCD", "PTD", "OMTD", "CA4", "CA3", "TMA245", "DMBD33", "EA4", "DCA34", "MDA44", "PLD13", "CTD4", "OD44", "AA4", "MTD44", "MBCA44", "ABP2", "ABP4", "BD", "ODAD", "TD44", "DAT34", "DAT24", "DAT26", "DAAS34_DAAS24", "ABPA33", "DMBPDA", "AMOBZT2", "BPCH11", "DMA26", "NICT", "COTT", "TMA246", "ANI", "NA2")
+
+
+# adjusting for specific gravity
+sum_chemicals <- c("sumaa", "PANSD", "OANSD", "DMA24", "PCD", "PTD", "OMTD", "CA4", "CA3", "TMA245", "DMBD33", "EA4", "DCA34", "MDA44", "PLD13", "CTD4", "OD44", "AA4", "MTD44", "MBCA44", "ABP2", "ABP4", "BD", "ODAD", "TD44", "DAT34", "DAT24", "DAT26", "DAAS34_DAAS24", "ABPA33", "DMBPDA", "AMOBZT2", "BPCH11", "DMA26", "NICT", "COTT", "TMA246", "ANI", "NA2","iso.imp.ngml", "isom.imp.ngml", "isom.imp.new.ngml", "pgf.imp.ngml", "iso.chem.imp.ngml","iso.enz.imp.ngml")
+
+# Adjusting for specific gravity
+create.sg.vars <- function(data) {
+  for (chemical in sum_chemicals) {
+  
+    #  calculate sg_value
+    sg_value <- data[[chemical]]*((1.012 - 1)/((data$sg_main)-1)) 
+    new_column_name <- paste0(chemical, "_sg")
+
+    # add the corrected value as a new column
+    data[[new_column_name]] <- sg_value
+  }
+  return(data)
+}
+
+combined <- create.sg.vars(combined) 
+```
+
+# Aromatic amines and Oxidative Stress
+
+# In this study
+
+-   **ANI:** *aniline.* The simplest aromatic amine. Clear to slightly yellow liquid. Used as a starting chemical to manufacture dyes, polyurethane foam, rubber, etc, end metabolite of more complex amines. Toxic by skin and inhalation, toxic by combustion. Known to induce methemoglobinemia.
+
+-   **COTT:** *cotinine*. The main metabolite of nicotine. Tobacco, cigarettes, etc. Has effects on behavior and cognitive function.
+
+-   **OMTD**: *ortho/meta-toluidine.* Clear to slightly yellow liquid. Used to manufacture dyes, pesticides, rubber, medicine, etc. Toxic by skin and inhalation. Known to induce methemoglobinemia. Central nervous system depression. Known carcinogen.
+
+-   **CA4**: *4-chloroaniline.* White or yellow solid. Used as manufacture dyes, pesticides, rubber, medicine, etc. Toxic by skin and inhalation. Known to induce methemoglobinemia. Central nervous system depression. Known carcinogen.
+
+-   **OANSD:** *ortho-anisidine*. Red or yellow liquid. Used as a chemical intermediate to produce pigments, dyes, medicine. Toxic by skin and inhalation. Known to induce methemoglobinemia. Known carcinogen.
+
+-   **MDA44:** *4,4’methylenedianiline*. Colorless solid. Mainly used to make polyurethane foams. Toxic by skin and inhalation. Known carcinogen.
+
+-   **PANSD:** *para-anisidine*. Yellow to brown, crystalline solid with an amine-like odor. Used as a reagent for the detection of oxidation products such as aldehydes and ketones in fats and oils. Exposure routes include inhalation, skin absorption, ingestion, skin and/or eye contact. Not carcinogenic to humans.
+
+-   **PTD:** *para-toluidine*. White solid with an aromatic odor. May be absorbed through the skin. Used in dyes, and in organic chemical manufacturing. Carcinogenicity not available.
+
+-   **CA3:** *3-chloroaniline.* Colorless to light amber liquid with a sweet odor. Used as an intermediate to produce herbicides, pharmaceuticals, azo dyes, and pigments. Carcinogenicity not available.
+
+-   **DCA34:** *3,4-dichloroaniline.* Used to make dyes and pesticides. Carcinogenicity not available.
+
+-   **PLD13:** *1,3-phenylenediamine*. Used to make dyes, to develop dyes, to dye hair. Not carcinogenic to humans.
+
+-   **NICT:** *Nicotine*.
+
+# Table 1: Demographics
+```{r, include=TRUE, error=FALSE, warning=FALSE}
+
+# removing one participant under 18
+combined <- combined %>% filter(mat_age>=18)
+
+table <- combined %>%
+  mutate(mat_educ = recode(mat_educ,
+                      "1" = "<High school",
+                      "2" = "High school or some college",
+                      "3" = "College degree",
+                      "4" = "Graduate degree"),
+         marital = recode(marital,
+                      "1" = "Married/living with a partner",
+                      "0" = "Single"),
+         mat_race_eth = recode(mat_race_eth,
+                               "1" = "White",
+                               "2" = "Black",
+                               "3" = "Asian, Native Hawaiian, Pacific Islander, American Indian, or Alaska Native",
+                               "4" = "Hispanic",
+                               "5" = "Multi-racial"),
+         parity = recode(parity,
+                         "0" = "No prior births",
+                         "1" = "1 or more prior births")) %>%
+# rename variables
+  rename("Maternal Age (in years)" = mat_age,
+         "Pre-pregnancy Body-Mass-Index" = ppbmi, 
+         "Marital Status" = marital,
+         "Education" = mat_educ,
+         "Race/Ethnicity" = mat_race_eth,
+         "Parity" = parity) %>%
+  
+    select(`Maternal Age (in years)`, `Pre-pregnancy Body-Mass-Index`, `Marital Status`, Education, `Race/Ethnicity`, Parity)
+
+
+tbl_summary(table, type = all_dichotomous() ~ "categorical", statistic = all_continuous() ~ "{mean} ({sd})", digits = all_continuous() ~ 2, missing_text = "Missing") %>%
+   modify_header(label = "**Demographic**") %>%
+   bold_labels()
+
+
+
+```
+
+
+```{r, include=TRUE, error=FALSE, warning=FALSE}
+# Creating indicator variable for other amines between 10-50% LOD
+
+ind_lod <- c("PANSD", "PTD", "CA3", "DCA34", "PLD13", "NICT")
+
+create_lod_indicators <- function(data, chemicals) {
+  data %>%
+    mutate(across(
+      all_of(paste0(chemicals, "_comment")),
+      ~ ifelse(.x == 37, 0, 1),
+      .names = "{str_remove(.col, '_comment')}_lod"
+    ))
+}
+
+combined <- create_lod_indicators(combined, ind_lod)
+
+
+```
+
+
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE}
+# Table: Unadjusted Regressions
+
+# loop regression over predictors and outcomes
+predictors <- c("ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "sumaa_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+outcomes <- c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log")
+
+models <- list()
+for (i in 1:length(outcomes)) {
+  for (j in 1:length(predictors)) {
+    model_name <- paste0(outcomes[i], " ~ ", predictors[j])
+    formula <- as.formula(paste(outcomes[i], " ~ ", predictors[j]))
+    model <- lm(formula = formula, data = combined)
+    n  <- nobs(model)
+    models[[model_name]] <- tidy(model, conf.int = TRUE) %>%
+      mutate(outcome = outcomes[i], N = n)
+  }
+}
+
+# format
+reg_amine_ox <- bind_rows(models, .id = "model") %>%
+  filter(!term %in% c("(Intercept)"))
+
+
+# table 
+table_s1 <- reg_amine_ox %>%
+  select(term, outcome, estimate, conf.low, conf.high) %>%
+  mutate(across(where(is.numeric), round, 2)) %>%
+  mutate(beta_ci = paste0(estimate, " (", conf.low, ", ", conf.high, ")")) %>%
+  select(term, outcome, beta_ci) %>%
+  
+  # Replace coded variable names with human-readable labels
+  mutate(term = chemical_label_log[term],
+         outcome = chemical_label_log[outcome]) %>%
+
+  # Pivot wider
+  pivot_wider(names_from = outcome, values_from = beta_ci) %>%
+  
+  # Make GT table
+  gt(groupname_col = "term") %>%
+  cols_label(term = "") %>%
+  gt_theme_538() %>%
+  opt_table_font(font = list(google_font(name = "Nunito")))
+
+table_s1
+
+```
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 15, fig.height = 20}
+# Figure: Unadjusted Forest Plots 
+
+predictors <- c("ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "sumaa_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+outcomes <- c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log")
+
+# Define which predictors are continuous vs binary
+continuous_vars <- c("ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "sumaa_log")
+binary_vars <- c("PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+
+# Add a variable type column
+reg_amine_ox <- reg_amine_ox %>%
+  mutate(var_type = case_when(
+    term %in% continuous_vars ~ "Continuous",
+    term %in% binary_vars ~ "Binary"
+  ))
+
+term_rects <- reg_amine_ox %>%
+  distinct(term) %>%
+  arrange(term) %>%
+  mutate(
+    term_index = row_number(),
+    var_type = case_when(
+      term %in% continuous_vars ~ "Continuous",
+      term %in% binary_vars ~ "Binary"
+    ),
+    fill_color = case_when(
+      var_type == "Continuous" ~ "grey95",
+      var_type == "Binary" ~ "grey85"
+    )
+  )
+
+models <- list()
+for (i in 1:length(outcomes)) {
+  for (j in 1:length(predictors)) {
+    model_name <- paste0(outcomes[i], " ~ ", predictors[j])
+    formula <- as.formula(paste(outcomes[i], " ~ ", predictors[j]))
+    model <- lm(formula = formula, data = combined)
+    n  <- nobs(model)
+    models[[model_name]] <- tidy(model, conf.int = TRUE) %>%
+      mutate(outcome = outcomes[i], N = n)
+  }
+}
+
+# format
+reg_amine_ox <- bind_rows(models, .id = "model") %>%
+  filter(!term %in% c("(Intercept)"))
+
+reg_amine_ox <- reg_amine_ox %>%
+  left_join(term_rects, by = "term") 
+reg_amine_ox$outcome <- factor(reg_amine_ox$outcome, levels = c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log", "final_ga"))
+
+reg_amine_ox$term <- factor(reg_amine_ox$term, levels = rev(c("sumaa_log", "ANI_log","COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")))
+
+# plot
+ggplot(reg_amine_ox, aes(estimate, term, shape = var_type)) + 
+  geom_tile(
+    aes(x = 0, y = term, fill = fill_color),
+    width = Inf, height = 1,
+    show.legend = FALSE
+  ) +
+scale_fill_identity() +
+    geom_pointrange(aes(xmin = conf.low, xmax = conf.high), color = "grey20", size = 1, linewidth = 1, position=position_dodge(width=1)) + 
+  facet_wrap(~outcome, scales = "fixed", ncol = 2, labeller = labeller(outcome = as_labeller(chemical_label_log))) + geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(y = "", x = "ß (95% Confidence Interval)") +
+   scale_y_discrete(labels = chemical_label_log) +
+  scale_shape_manual(values = c("Continuous" = 16, "Binary" = 17))
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE}
+# Table: Adjusted Regressions - Adjusted for maternal age, maternal education, and maternal pre-pregnancy BMI
+
+
+# loop regression over predictors and outcomes
+predictors <- c("ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "sumaa_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+outcomes <- c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log")
+
+models <- list()
+for (i in 1:length(outcomes)) {
+  for (j in 1:length(predictors)) {
+    model_name <- paste0(outcomes[i], " ~ ", predictors[j])
+    formula <- as.formula(paste(outcomes[i], " ~ ", predictors[j], "+ mat_age + mat_educ + ppbmi"))
+    model <- lm(formula = formula, data = combined)
+    n  <- nobs(model)
+    models[[model_name]] <- tidy(model, conf.int = TRUE) %>%
+      mutate(outcome = outcomes[i], N = n)
+  }
+}
+
+# format
+reg_adj_amine_ox <- bind_rows(models, .id = "model") %>%
+  filter(!term %in% c("mat_age", "mat_educ", "mat_educ2", "mat_educ3","mat_educ4", "ppbmi", "(Intercept)"))
+
+
+# table 
+table_s2 <- reg_adj_amine_ox %>%
+    select(term, outcome, estimate, conf.low, conf.high) %>%
+    mutate_if(is.numeric, round, digits = 2) %>%
+    mutate(beta_ci = paste0(estimate, " (", conf.low, ", ", conf.high, ")"))  %>%
+    select(term, outcome,beta_ci) %>%
+   # Replace coded variable names with human-readable labels
+  mutate(term = chemical_label_log[term],
+         outcome = chemical_label_log[outcome]) %>%
+  pivot_wider(names_from = outcome, values_from = beta_ci) %>%
+  gt(groupname_col = "term") %>%
+  cols_label(term = "") %>%
+  gt_theme_538() %>%
+  opt_table_font(font = list(google_font(name = "Nunito"))) 
+
+table_s2
+
+```
+
+# Figure 1: Correlations
+```{r, include=TRUE, error=FALSE, warning=FALSE, fig.width = 10, fig.height = 10}
+
+# select 
+cor_amines <- combined %>%
+  select(sumaa_log, ANI_log, OMTD_log, MDA44_log, CA4_log, OANSD_log, COTT_log, CA3_log, PTD_log, NICT_log, DCA34_log, PANSD_log, PLD13_log, iso.imp.ngml_log, isom.imp.ngml_log, isom.imp.new.ngml_log, pgf.imp.ngml_log) %>%
+  na.omit()
+
+# label 
+colnames(cor_amines) <- c("∑ aromatic amines", "aniline", "ortho/meta-toluidine", "4,4'methylenedianiline", "4-chloroaniline", "ortho-anisidine", "cotinine", "3-chloroaniline", "para-toluidine", "nicotine", "3,4-dichloroaniline", "para-anisidine", "1,3-phenylenediamine", "8-iso-PGF2α", "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+        "2,3-dinor-8-iso-PGF2α", "PGF2α")
+
+# get correlation
+cor_amines <- cor(cor_amines, method = "spearman")
+
+# plot 
+corrplot(cor_amines, method = "color", tl.col = "grey30", col = COL2('RdBu'))
+
+
+
+```
+
+# Figure 2: GAM Plots - Continuous Predictors 
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+# 8-iso-PGF2α
+gam_smooth_plot <- function(
+  data,
+  outcome,
+  predictor,
+  id_var = NULL,
+  n = 200,
+  ci_mult = 1.96,
+  xlab = NULL,
+  ylab = NULL,
+  fill_color = "steelblue",
+  line_color = "steelblue4"
+) {
+
+  # Capture variable names
+  outcome   <- enquo(outcome)
+  predictor <- enquo(predictor)
+  id_var    <- enquo(id_var)
+
+  outcome_name   <- quo_name(outcome)
+  predictor_name <- quo_name(predictor)
+
+  # Build GAM formula
+  if (is.null(id_var)) {
+    gam_formula <- as.formula(
+      paste0(outcome_name, " ~ s(", predictor_name, ")")
+    )
+  } else {
+    gam_formula <- as.formula(
+      paste0(outcome_name, " ~ s(", predictor_name, ")")
+    )
+  }
+
+  # Fit model
+  gam_mod <- gam(
+    formula = gam_formula,
+    data = data,
+    family = gaussian,
+    method = "REML",
+    random = if (!quo_is_null(id_var)) as.formula(
+      paste0("~(1 | ", quo_name(id_var), ")")
+    ) else NULL
+  )
+
+  # Create prediction grid
+  newdat <- data.frame(
+    x = seq(
+      min(pull(data, !!predictor), na.rm = TRUE),
+      max(pull(data, !!predictor), na.rm = TRUE),
+      length.out = n
+    )
+  )
+  names(newdat) <- predictor_name
+
+  # Predictions
+  pred <- predict(
+    gam_mod,
+    newdata = newdat,
+    se.fit = TRUE
+  )
+
+  preds <- newdat %>%
+    mutate(
+      !!outcome_name := pred$fit,
+      CI_lower = pred$fit - ci_mult * pred$se.fit,
+      CI_upper = pred$fit + ci_mult * pred$se.fit
+    )
+
+  # Plot
+  ggplot(preds, aes(x = !!predictor, y = !!outcome)) +
+    geom_ribbon(
+      aes(ymin = CI_lower, ymax = CI_upper),
+      alpha = 0.15,
+      fill = fill_color
+    ) +
+    geom_line(
+      linewidth = 1,
+      color = line_color
+    ) +
+    labs(
+      x = xlab %||% predictor_name,
+      y = ylab %||% outcome_name
+    ) +
+    theme_bw() +
+    theme(
+       axis.title.x = element_text(size = 28, face = "bold"),
+  axis.title.y = element_text(size = 28, face = "bold"),
+  axis.text.x  = element_text(size = 28),
+  axis.text.y  = element_text(size = 28),
+  plot.margin  = margin(1, 1, 1, 1, "cm")
+    )
+}
+
+exposure_colors <- c(
+  sumaa_log = "#1b9e77",
+  ANI_log   = "#d95f02",
+  COTT_log  = "#7570b3",
+  OMTD_log  = "#e7298a",
+  CA4_log   = "#66a61e",
+  OANSD_log = "#e6ab02",
+  MDA44_log = "#a6761d"
+)
+
+
+predictors <- c("sumaa_log", "ANI_log", "OMTD_log", "MDA44_log", "CA4_log", "OANSD_log", "COTT_log")
+
+plots <- map(predictors, function(pred_var) {
+  gam_smooth_plot(
+    data = combined,
+    outcome = iso.imp.ngml_log,
+    predictor = !!sym(pred_var),
+    id_var = ppt_id,
+    xlab = chemical_label_log[pred_var],
+    ylab = "8-iso-PGF2α",
+    fill_color = exposure_colors[pred_var],
+    line_color = exposure_colors[pred_var]
+  )
+})
+
+# Combine into one figure
+iso8_plot <- wrap_plots(plots, ncol = 7)  # adjust ncol as needed
+
+
+plots <- map(predictors, function(pred_var) {
+  gam_smooth_plot(
+    data = combined,
+    outcome = isom.imp.ngml_log,
+    predictor = !!sym(pred_var),
+    id_var = ppt_id,
+    xlab = chemical_label_log[pred_var],
+    ylab = "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+    fill_color = exposure_colors[pred_var],
+    line_color = exposure_colors[pred_var]
+  )
+})
+
+# Combine into one figure
+dinor_plot <- wrap_plots(plots, ncol = 7)  # adjust ncol as needed
+
+# 2,3-dinor-8-iso-PGF2α
+plots <- map(predictors, function(pred_var) {
+  gam_smooth_plot(
+    data = combined,
+    outcome = isom.imp.new.ngml_log,
+    predictor = !!sym(pred_var),
+    id_var = ppt_id,
+    xlab = chemical_label_log[pred_var],
+    ylab = "2,3-dinor-8-iso-PGF2α",
+    fill_color = exposure_colors[pred_var],
+    line_color = exposure_colors[pred_var]
+  )
+})
+
+# Combine into one figure
+dinor8_plot <- wrap_plots(plots, ncol = 7)  # adjust ncol as needed
+
+# PGF2α
+plots <- map(predictors, function(pred_var) {
+  gam_smooth_plot(
+    data = combined,
+    outcome = pgf.imp.ngml_log,
+    predictor = !!sym(pred_var),
+    id_var = ppt_id,
+    xlab = chemical_label_log[pred_var],
+    ylab = "PGF2α",
+    fill_color = exposure_colors[pred_var],
+    line_color = exposure_colors[pred_var]
+  )
+})
+
+# Combine into one figure
+pgf_plot <- wrap_plots(plots, ncol = 7) 
+
+```
+
+
+
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 50, fig.height = 30}
+
+gam_plots <- wrap_plots(iso8_plot, dinor_plot, dinor8_plot, pgf_plot, ncol=1)
+gam_plots
+
+```
+
+# Figure 3: Adjusted Forest Plots 
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 15, fig.height = 8}
+
+# factor
+reg_adj_amine_ox$outcome <- factor(reg_adj_amine_ox$outcome, levels = c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log"))
+
+reg_adj_amine_ox$term <- factor(reg_adj_amine_ox$term, levels = rev(c("sumaa_log", "ANI_log", "OMTD_log", "MDA44_log","CA4_log","OANSD_log", "COTT_log", "CA3_lod", "PTD_lod", "NICT_lod", "DCA34_lod", "PANSD_lod", "PLD13_lod")))
+
+# Define which predictors are continuous vs binary
+continuous_vars <- c("ANI_log", "COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "sumaa_log")
+binary_vars <- c("PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod")
+
+
+term_rects <- reg_adj_amine_ox %>%
+  distinct(term) %>%
+  arrange(term) %>%
+  mutate(
+    term_index = row_number(),
+    var_type = case_when(
+      term %in% continuous_vars ~ "Continuous",
+      term %in% binary_vars ~ "Binary"
+    ),
+    fill_color = case_when(
+      var_type == "Continuous" ~ "grey95",
+      var_type == "Binary" ~ "grey85"
+    )
+  )
+
+reg_adj_amine_ox <- reg_adj_amine_ox %>%
+  left_join(term_rects, by = "term") 
+
+# plot
+ggplot(reg_adj_amine_ox, aes(estimate, term, shape = var_type)) + 
+  geom_tile(
+    aes(x = 0, y = term, fill = fill_color),
+    width = Inf, height = 1,
+    show.legend = FALSE
+  ) +
+  scale_fill_identity() +
+  geom_pointrange(
+    aes(xmin = conf.low, xmax = conf.high),
+    color = "grey20",
+    size = 1,
+    linewidth = 1,
+    position = position_dodge(width = 1)
+  ) + 
+  facet_wrap(
+    ~outcome,
+    scales = "fixed",
+    ncol = 4,
+    labeller = labeller(outcome = as_labeller(chemical_label_log))
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(y = "", x = "ß (95% Confidence Interval)") +
+  scale_y_discrete(labels = chemical_label_log) +
+  scale_shape_manual(values = c("Continuous" = 16, "Binary" = 17)) +
+  guides(shape = "none") +
+  theme(
+    strip.text = element_text(size = 17, margin = margin(t = 6, b = 6)),
+    strip.clip = "off",
+    panel.spacing = unit(2, "lines")
+  ) + theme(
+    axis.text.y = element_text(size = 18)
+  )
+
+```
+
+
+
+
+
+
+# Supplemental Material
+
+## Table S1: Aromatic Amines Distributions
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE}
+dist.func.geo <- function(x) {
+  c(
+    geomean = round(exp(mean(log(x), na.rm = TRUE)), 2), 
+    geosd = round(exp(sd(log(x), na.rm = TRUE)), 2),
+    min = round(min(x, na.rm = TRUE), 2),
+    q1 = round(quantile(x, 0.25, na.rm = TRUE), 2),
+    med = round(median(x, na.rm = TRUE), 2),
+    q3 = round(quantile(x, 0.75, na.rm = TRUE), 2), 
+    max = round(max(x, na.rm = TRUE), 2)
+  )
+}
+
+lod_ciob_data <- combined %>%
+  select(ANI_comment, OMTD_comment, MDA44_comment, CA4_comment, OANSD_comment, COTT_comment, CA3_comment, PTD_comment, NICT_comment, DCA34_comment, PANSD_comment, PLD13_comment) %>%
+  summarise(across(
+    everything(),
+    list(
+      n_above_lod = ~ sum(.x != 37, na.rm = TRUE),
+      percent_above_lod = ~ round(100 * sum(.x != 37, na.rm = TRUE) / length(.x), 0)
+    ),
+    .names = "{.col}_{.fn}"
+  )) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c("amine", ".value"),
+    names_pattern = "(.*)_(n_above_lod|percent_above_lod)"
+  ) %>%
+  mutate(amine = str_sub(amine, 0 , -9)) %>%
+  mutate(amine = recode(amine, !!!chemical_label))
+
+lod_ciob_data <- lod_ciob_data %>%
+  bind_rows(
+    tibble(
+      amine = chemical_sg_label[["sumaa_sg"]], 
+      n_above_lod = NA_integer_,
+      percent_above_lod = NA_real_))
+
+
+dist_amines_data <- combined %>%
+  select(sumaa_sg, ANI_sg, OMTD_sg, MDA44_sg, CA4_sg, OANSD_sg, COTT_sg,  CA3_sg, PTD_sg, NICT_sg, DCA34_sg, PANSD_sg, PLD13_sg,  iso.imp.ngml_sg, isom.imp.ngml_sg, isom.imp.new.ngml_sg, pgf.imp.ngml_sg, iso.chem.imp.ngml_sg, iso.enz.imp.ngml_sg) %>%
+  map_dfr(dist.func.geo, .id = "amine") %>%
+  mutate(amine = recode(amine, !!!chemical_sg_label))
+
+combined_table <- lod_ciob_data %>%
+  left_join(dist_amines_data, by = "amine")
+
+
+combined_gt <- combined_table %>%
+   gt() %>%
+  cols_label(
+    amine = "Aromatic Amine",
+    n_above_lod = "N Above LOD",
+    percent_above_lod = "Percent Above LOD (%)",
+    geomean = "Geometric Mean",
+    geosd = "Geometric SD",
+    min = "Minimum",
+    `q1.25%` = "25%",
+    med = "Median",
+    `q3.75%` = "75%",
+    max = "Maximum"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(rows = percent_above_lod > 50)
+  ) 
+
+combined_gt
+
+```
+
+## Table S2: Oxidative Stress Distributions
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE}
+
+dist_ox_data <- combined %>%
+  select(iso.imp.ngml_sg, isom.imp.ngml_sg, isom.imp.new.ngml_sg, pgf.imp.ngml_sg) %>%
+  map_dfr(dist.func.geo, .id = "amine") %>%
+  mutate(amine = recode(amine, !!!chemical_sg_label))
+
+combined_ox <- dist_ox_data %>%
+  gt() %>%
+  cols_label(
+    amine = "Oxidative Stress Measure",
+    geomean = "Geometric Mean",
+    geosd = "Geometric SD",
+    min = "Minimum",
+    `q1.25%` = "25%",
+    med = "Median",
+    `q3.75%` = "75%",
+    max = "Maximum"
+  )  
+
+combined_ox
+
+```
+
+
+
+## Table S3: Unadjusted vs adjusted regression results
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 15, fig.height = 20}
+#### Regression
+# Un-adjusted
+predictors <- c("sumaa_log", "ANI_log", "OMTD_log", "MDA44_log", "CA4_log", "OANSD_log", "COTT_log", "CA3_lod", "PTD_lod", "NICT_lod", "DCA34_lod", "PANSD_lod", "PLD13_lod")
+outcomes <- c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log")
+
+models <- list()
+for (i in 1:length(outcomes)) {
+  for (j in 1:length(predictors)) {
+    model_name <- paste0(outcomes[i], " ~ ", predictors[j])
+    formula <- as.formula(paste(outcomes[i], " ~ ", predictors[j]))
+    model <- lm(formula = formula, data = combined)
+    n  <- nobs(model)
+    models[[model_name]] <- tidy(model, conf.int = TRUE) %>%
+      mutate(outcome = outcomes[i], N = n)
+  }
+}
+
+# format
+reg_amine_ox <- bind_rows(models, .id = "model") %>%
+  filter(!term %in% c("(Intercept)"))
+
+# Adjusted
+models <- list()
+for (i in 1:length(outcomes)) {
+  for (j in 1:length(predictors)) {
+    model_name <- paste0(outcomes[i], " ~ ", predictors[j])
+    formula <- as.formula(paste(outcomes[i], " ~ ", predictors[j], "+ mat_age + mat_educ + ppbmi"))
+    model <- lm(formula = formula, data = combined)
+    n  <- nobs(model)
+    models[[model_name]] <- tidy(model, conf.int = TRUE) %>%
+      mutate(outcome = outcomes[i], N = n)
+  }
+}
+
+# format
+reg_adj_amine_ox <- bind_rows(models, .id = "model") %>%
+  filter(!term %in% c("mat_age", "mat_educ", "mat_educ2", "mat_educ3","mat_educ4", "ppbmi", "(Intercept)"))
+
+reg_amine_ox <- reg_amine_ox %>% mutate(model = "unadjusted")
+reg_adj_amine_ox <- reg_adj_amine_ox %>% mutate(model = "adjusted")
+
+reg_pooled <- bind_rows(reg_amine_ox, reg_adj_amine_ox)
+
+# factor
+reg_pooled$outcome <- factor(reg_pooled$outcome, levels = c("iso.imp.ngml_log","isom.imp.ngml_log", "isom.imp.new.ngml_log", "pgf.imp.ngml_log"))
+reg_pooled$term <- factor(reg_pooled$term, levels = c("sumaa_log", "ANI_log","COTT_log", "OMTD_log", "CA4_log", "OANSD_log", "MDA44_log", "PANSD_lod", "PTD_lod", "CA3_lod", "DCA34_lod", "PLD13_lod", "NICT_lod"))
+
+# table
+table_s3 <- reg_pooled %>%
+    select(term, outcome, model, estimate, conf.low, conf.high) %>%
+    mutate_if(is.numeric, round, digits = 2) %>%
+      mutate(outcome = recode(outcome, !!!chemical_label_log),
+           term = recode(term, !!!chemical_label_log)) %>%
+    mutate(beta_ci = paste0(estimate, " (", conf.low, ", ", conf.high, ")"))  %>%
+    select(term, outcome, model, beta_ci) %>%
+  pivot_wider(names_from = outcome, values_from = beta_ci) %>%
+  gt(groupname_col = "term", rowname_col = "model") %>%
+  cols_label(term = "") 
+
+table_s3
+```
+
+
+## Table S4: Tertile Analysis
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+#tertiles for ∑ aromatic amines
+combined$sumaa_log_tertile <- cut(
+  combined$sumaa_log,
+  breaks = quantile(combined$sumaa_log, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2", "3")
+)
+
+
+# renaming outcomes and making an outcome dataframe
+rename_outcomes <- function(df) {
+  df$outcome <- recode(
+    df$outcome,
+    "iso.imp.ngml_log"      = "8-iso-PGF2α",
+    "isom.imp.ngml_log"     = "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+    "isom.imp.new.ngml_log" = "2,3-dinor-8-iso-PGF2α",
+    "pgf.imp.ngml_log"      = "PGF2α"
+  )
+  df
+}
+
+
+run_exposure_plots <- function(data, exposure, labels) {
+  
+  outcome_vars <- c(
+    "iso.imp.ngml_log",
+    "isom.imp.ngml_log",
+    "isom.imp.new.ngml_log",
+    "pgf.imp.ngml_log"
+  )
+  
+  # TERTILE MODELS
+  run_tert <- function(outcome_var) {
+    tidy(
+      lm(as.formula(
+        paste0(
+          outcome_var,
+          " ~ ", exposure, "_tertile"
+        )
+      ), data = data),
+      conf.int = TRUE
+    ) %>%
+      filter(grepl(paste0(exposure, "_tertile"), term)) %>%
+      mutate(outcome = outcome_var)
+  }
+  
+  tert_res <- bind_rows(lapply(outcome_vars, run_tert))
+  
+  # extracting numeric tertile term and matching it to label ("ampa_tertile2" gets parsed as 2 and then matched to T2 cutoff points, this helps prevent code breaks)
+  tert_clean <- tert_res %>%
+    mutate(
+      tert_num = readr::parse_number(term),
+      exposure = labels[tert_num]
+    )
+  tert_clean
+}
+
+
+sumaa_labels <- c(
+  "T1: ≤ -1.88",
+  "T2: (-1.88)-(-1.43)",
+  "T3: ≥ -1.43"
+)
+
+sumaa_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "sumaa_log",
+  labels = sumaa_labels)
+
+
+sumaa_tert_fmt <- sumaa_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+sumaa_table_wide <- sumaa_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = sumaa_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+sumaa_table_wide <- bind_rows(ref_row, sumaa_table_wide)
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+#tertiles for aniline
+combined$ANI_log_tertile <- cut(
+  combined$ANI_log,
+  breaks = quantile(combined$ANI_log, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2", "3")
+)
+
+ani_labels <- c(
+  "T1: ≤ 2.12",
+  "T2: 2.12-2.74",
+  "T3: ≥ 2.74"
+)
+
+ani_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "ANI_log",
+  labels = ani_labels)
+
+
+ani_tert_fmt <- ani_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+ani_table_wide <- ani_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = ani_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+ani_table_wide <- bind_rows(ref_row, ani_table_wide)
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+## Cotinine - issue due to LOD
+#tertiles for cotinine
+combined$COTT_log_tertile <- cut(
+ combined$COTT_log,
+  breaks = quantile(combined$COTT_log, probs = c(0, 0.56, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2")
+)
+
+# labels ampa tertile cutpoints and plots the 4 panels for ampa 
+COTT_labels <- c(
+  "Below LOD: ≤-2.65",
+  "Above LOD: > -2.65"
+)
+
+COTT_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "COTT_log",
+  labels = COTT_labels)
+
+
+COTT_tert_fmt <- COTT_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+COTT_table_wide <- COTT_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = COTT_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+COTT_table_wide <- bind_rows(ref_row, COTT_table_wide)
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+#tertiles for aniline
+combined$OMTD_log_tertile <- cut(
+  combined$OMTD_log,
+  breaks = quantile(combined$OMTD_log, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2", "3")
+)
+
+# labels ampa tertile cutpoints and plots the 4 panels for ampa 
+OMTD_labels <- c(
+  "T1: ≤-0.21",
+  "T2: (-0.21)-0.82",
+  "T3: ≥0.82"
+)
+
+OMTD_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "OMTD_log",
+  labels = OMTD_labels)
+
+
+OMTD_tert_fmt <- OMTD_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+OMTD_table_wide <- OMTD_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = OMTD_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+OMTD_table_wide <- bind_rows(ref_row, OMTD_table_wide)
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+combined$CHLOR_log <- combined$CA4_log
+
+#tertiles for CHLOR
+combined$CHLOR_log_tertile <- cut(
+  combined$CHLOR_log,
+  breaks = quantile(combined$CHLOR_log, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2", "3")
+)
+
+# labels ampa tertile cutpoints and plots the 4 panels for ampa 
+CHLOR_labels <- c(
+  "T1: ≤-0.89",
+  "T2: (-0.89)-0.13",
+  "T3: ≥0.13"
+)
+
+CHLOR_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "CHLOR_log",
+  labels = CHLOR_labels)
+
+
+CHLOR_tert_fmt <- CHLOR_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+CHLOR_table_wide <- CHLOR_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = CHLOR_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+CHLOR_table_wide <- bind_rows(ref_row, CHLOR_table_wide)
+
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+#tertiles for ortho-anisidine
+combined$OANSD_log_tertile <- cut(
+  combined$OANSD_log,
+  breaks = quantile(combined$OANSD_log, probs = c(0, 0.65, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2")
+)
+
+# labels ampa tertile cutpoints and plots the 4 panels for ampa 
+OANSD_labels <- c(
+  "Below LOD: ≤0.82",
+  "Above LOD: >0.82"
+)
+
+OANSD_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "OANSD_log",
+  labels = OANSD_labels)
+
+
+OANSD_tert_fmt <- OANSD_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+OANSD_table_wide <- OANSD_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = OANSD_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+OANSD_table_wide <- bind_rows(ref_row, OANSD_table_wide)
+
+
+
+```
+
+
+```{r, include=FALSE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+combined$MDA_log <- combined$MDA44_log
+
+#tertiles for aniline
+combined$MDA_log_tertile <- cut(
+  combined$MDA_log,
+  breaks = quantile(combined$MDA_log, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = c("1", "2", "3")
+)
+
+# labels ampa tertile cutpoints and plots the 4 panels for ampa 
+MDA_labels <- c(
+  "T1: ≤ -0.31",
+  "T2: (-0.31)-0.33",
+  "T3: ≥0.33"
+)
+
+MDA_tert <- run_exposure_plots(
+  data = combined,
+  exposure = "MDA_log",
+  labels = MDA_labels)
+
+
+MDA_tert_fmt <- MDA_tert %>%
+  rename_outcomes() %>%
+  mutate(
+    `Beta (95% CI)` = paste0(
+      round(estimate, 2),
+      " (",
+      round(conf.low, 2), ", ",
+      round(conf.high, 2),
+      ")"
+    )
+  )
+
+MDA_table_wide <- MDA_tert_fmt %>%
+  select(
+    Tertile = exposure,
+    Biomarker = outcome,
+    `Beta (95% CI)`
+  ) %>%
+  pivot_wider(
+    names_from  = Biomarker,
+    values_from = `Beta (95% CI)`
+  ) %>%
+  arrange(Tertile)
+
+ref_row <- tibble(
+  Tertile = MDA_labels[1],
+  `8-iso-PGF2α` = "Reference",
+  `2,3-dinor-5,6-dihydro-8-iso-PGF2α` = "Reference",
+  `2,3-dinor-8-iso-PGF2α` = "Reference",
+  `PGF2α` = "Reference"
+)
+
+MDA_table_wide <- bind_rows(ref_row, MDA_table_wide)
+
+
+```
+
+```{r, include=TRUE, error=FALSE, warning=FALSE, message = FALSE, fig.width = 20, fig.height = 10}
+
+# Create combined table
+sumaa_table_wide <- sumaa_table_wide %>%
+  mutate(Exposure = "∑ aromatic amines")
+
+ani_table_wide <- ani_table_wide %>%
+  mutate(Exposure = "aniline")
+
+COTT_table_wide <- COTT_table_wide %>%
+  mutate(Exposure = "cotinine")
+
+OMTD_table_wide <- OMTD_table_wide %>%
+  mutate(Exposure = "ortho/meta-toluidine")
+
+CHLOR_table_wide <- CHLOR_table_wide %>%
+  mutate(Exposure = "4-chloroaniline")
+
+OANSD_table_wide <- OANSD_table_wide %>%
+  mutate(Exposure = "ortho-anisidine")
+
+MDA_table_wide <- MDA_table_wide %>%
+  mutate(Exposure = "4,4’methylenedianiline")
+
+all_tables <- bind_rows(
+  sumaa_table_wide,
+ani_table_wide, 
+OMTD_table_wide,
+MDA_table_wide,
+CHLOR_table_wide,
+OANSD_table_wide,
+COTT_table_wide
+) %>%
+  relocate(Exposure, Tertile)
+
+gt(all_tables)
+
+```
+
